@@ -81,7 +81,7 @@ class PatchEmbed_overlap(nn.Module):
 
 def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_softplus=False):
     """
-    高效的selective scan实现，基于cumsum的方法
+    简化的selective scan实现，更稳定的版本
     
     参数:
     u: (B, L, D) 输入序列
@@ -101,23 +101,28 @@ def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_
     if delta_softplus:
         delta = F.softplus(delta)
     
-    # 计算discretized A和B
-    # dA = exp(delta * A) [B, L, D, N]
-    dA = torch.exp(torch.einsum('bld,dn->bldn', delta, A))
+    # 简化实现：使用sequential scan而不是并行scan
+    # 这更稳定但可能稍慢一些
+    outputs = []
+    h = torch.zeros(B, D, N, device=u.device, dtype=u.dtype)  # 初始状态
     
-    # dB_u = delta * u * B [B, L, D, N]  
-    dB_u = torch.einsum('bld,bld,bln->bldn', delta, u, B)
+    for i in range(L):
+        # 当前时间步的参数
+        dt_i = delta[:, i, :]  # (B, D)
+        u_i = u[:, i, :]       # (B, D)
+        B_i = B[:, i, :]       # (B, N)
+        C_i = C[:, i, :]       # (B, N)
+        
+        # 状态更新: h = exp(A*dt) * h + dt * B * u
+        # 简化为: h = h + dt * (A * h + B * u)
+        dA = torch.einsum('bd,dn->bdn', dt_i, A)  # (B, D, N)
+        h = h * torch.exp(dA) + torch.einsum('bd,bn,bd->bdn', dt_i, B_i, u_i)
+        
+        # 输出计算: y = C * h
+        y_i = torch.einsum('bn,bdn->bd', C_i, h)  # (B, D)
+        outputs.append(y_i)
     
-    # 使用cumsum实现selective scan
-    # 计算cumulative product of dA (反向累积然后正向)
-    dA_cumsum = F.pad(dA[:, 1:], (0, 0, 0, 0, 0, 1)).flip(1).cumsum(1).exp().flip(1)
-    
-    # 状态计算
-    x = dB_u * dA_cumsum
-    x = x.cumsum(1) / (dA_cumsum + 1e-12)
-    
-    # 输出计算
-    y = torch.einsum('bldn,bln->bld', x, C)
+    y = torch.stack(outputs, dim=1)  # (B, L, D)
     
     # 添加直接连接
     if D is not None:
@@ -276,19 +281,36 @@ class VisionMambaBlock(nn.Module):
 
     def forward(self, x):
         """
-        x: (B, L, C) -> 重组为 (B, H, W, C) -> SS2D -> 重组回 (B, L, C)
+        x: (B, L, C) 其中L = num_patches + 1 (包含cls_token)
         """
         B, L, C = x.shape
-        H = W = int(math.sqrt(L))  # 假设是正方形
         
-        # 重组为2D
-        x_2d = x.view(B, H, W, C)
+        # 分离cls_token和patch tokens
+        cls_token = x[:, 0:1, :]  # (B, 1, C)
+        patch_tokens = x[:, 1:, :]  # (B, num_patches, C)
         
-        # 应用SS2D
-        x_2d = x_2d + self.ss2d(self.norm(x_2d))
+        # 计算patch的H, W
+        num_patches = patch_tokens.shape[1]
+        H = W = int(math.sqrt(num_patches))
         
-        # 重组回序列
-        out = x_2d.view(B, L, C)
+        if H * W != num_patches:
+            raise ValueError(f"Number of patches {num_patches} is not a perfect square")
+        
+        # 重组patch tokens为2D
+        patch_2d = patch_tokens.view(B, H, W, C)
+        
+        # 应用SS2D到patch tokens
+        patch_2d_out = patch_2d + self.ss2d(self.norm(patch_2d))
+        
+        # 重组回序列格式
+        patch_tokens_out = patch_2d_out.view(B, num_patches, C)
+        
+        # 对cls_token也应用norm（但不用SS2D）
+        cls_token_out = cls_token + self.norm(cls_token)  # 简单的残差连接
+        
+        # 重新组合cls_token和patch tokens
+        out = torch.cat([cls_token_out, patch_tokens_out], dim=1)
+        
         return out
 
 
