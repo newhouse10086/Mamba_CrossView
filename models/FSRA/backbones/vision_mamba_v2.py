@@ -79,7 +79,7 @@ class PatchEmbed_overlap(nn.Module):
         return x
 
 
-def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_softplus=False):
+def selective_scan_fn(u, delta, A, B_proj, C_proj, D=None, z=None, delta_bias=None, delta_softplus=False):
     """
     简化的selective scan实现，更稳定的版本
     
@@ -87,12 +87,12 @@ def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_
     u: (B, L, D) 输入序列
     delta: (B, L, D) 时间步长
     A: (D, N) 状态矩阵
-    B: (B, L, N) 输入到状态的投影
-    C: (B, L, N) 状态到输出的投影
+    B_proj: (B, L, N) 输入到状态的投影
+    C_proj: (B, L, N) 状态到输出的投影
     D: (D,) 直接连接权重
     z: (B, L, D) 门控
     """
-    B, L, D = u.shape
+    batch_size, seq_len, dim = u.shape
     N = A.shape[1]
     
     # 应用delta_bias和softplus
@@ -104,25 +104,25 @@ def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_
     # 简化实现：使用sequential scan而不是并行scan
     # 这更稳定但可能稍慢一些
     outputs = []
-    h = torch.zeros(B, D, N, device=u.device, dtype=u.dtype)  # 初始状态
+    h = torch.zeros(batch_size, dim, N, device=u.device, dtype=u.dtype)  # 初始状态
     
-    for i in range(L):
+    for i in range(seq_len):
         # 当前时间步的参数
-        dt_i = delta[:, i, :]  # (B, D)
-        u_i = u[:, i, :]       # (B, D)
-        B_i = B[:, i, :]       # (B, N)
-        C_i = C[:, i, :]       # (B, N)
+        dt_i = delta[:, i, :]        # (batch_size, dim)
+        u_i = u[:, i, :]             # (batch_size, dim)
+        B_i = B_proj[:, i, :]        # (batch_size, N)
+        C_i = C_proj[:, i, :]        # (batch_size, N)
         
         # 状态更新: h = exp(A*dt) * h + dt * B * u
         # 简化为: h = h + dt * (A * h + B * u)
-        dA = torch.einsum('bd,dn->bdn', dt_i, A)  # (B, D, N)
+        dA = torch.einsum('bd,dn->bdn', dt_i, A)  # (batch_size, dim, N)
         h = h * torch.exp(dA) + torch.einsum('bd,bn,bd->bdn', dt_i, B_i, u_i)
         
         # 输出计算: y = C * h
-        y_i = torch.einsum('bn,bdn->bd', C_i, h)  # (B, D)
+        y_i = torch.einsum('bn,bdn->bd', C_i, h)  # (batch_size, dim)
         outputs.append(y_i)
     
-    y = torch.stack(outputs, dim=1)  # (B, L, D)
+    y = torch.stack(outputs, dim=1)  # (batch_size, seq_len, dim)
     
     # 添加直接连接
     if D is not None:
