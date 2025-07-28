@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
 from typing import Optional
+import os
 
 
 def to_2tuple(x):
@@ -273,48 +274,143 @@ class VisionMamba(nn.Module):
 
     def load_param(self, model_path):
         """Load pretrained parameters (adapted from ViT loading)"""
+        if not model_path or model_path == '':
+            print('No pretrained model provided for Vision Mamba, using random initialization')
+            return
+            
+        if not os.path.exists(model_path):
+            print(f'Pretrained model path {model_path} does not exist, using random initialization')
+            return
+            
         try:
+            print(f'Loading pretrained Vision Mamba model from {model_path}')
             param_dict = torch.load(model_path, map_location='cpu')
+            
+            # Handle different checkpoint formats
             if 'model' in param_dict:
                 param_dict = param_dict['model']
-            if 'state_dict' in param_dict:
+            elif 'state_dict' in param_dict:
                 param_dict = param_dict['state_dict']
+            elif 'model_state_dict' in param_dict:
+                param_dict = param_dict['model_state_dict']
             
             # Load compatible parameters
             model_dict = self.state_dict()
             pretrained_dict = {}
             
-            for k, v in param_dict.items():
-                if 'head' in k or 'dist' in k:
-                    continue
-                if k in model_dict and model_dict[k].shape == v.shape:
-                    pretrained_dict[k] = v
-                elif 'patch_embed.proj.weight' in k and len(v.shape) < 4:
-                    # Handle patch embedding weight shape mismatch
-                    O, I, H, W = self.patch_embed.proj.weight.shape
-                    v = v.reshape(O, -1, H, W)
-                    if v.shape == model_dict[k].shape:
-                        pretrained_dict[k] = v
-                elif k == 'pos_embed' and v.shape != self.pos_embed.shape:
-                    # Handle position embedding size mismatch
-                    pretrained_dict[k] = self._resize_pos_embed(v)
+            # Track loading progress
+            total_params = len(param_dict)
+            loaded_params = 0
             
-            model_dict.update(pretrained_dict)
-            self.load_state_dict(model_dict)
-            print(f'Loaded {len(pretrained_dict)} parameters from {model_path}')
+            for k, v in param_dict.items():
+                # Skip head/classifier layers
+                if 'head' in k or 'dist' in k or 'classifier' in k or 'fc' in k:
+                    print(f'Skipping classifier layer: {k}')
+                    continue
+                
+                # Remove 'module.' prefix if present
+                key = k.replace('module.', '')
+                
+                # Handle patch embedding weight shape mismatch
+                if 'patch_embed.proj.weight' in key:
+                    if key in model_dict:
+                        if v.shape == model_dict[key].shape:
+                            pretrained_dict[key] = v
+                            loaded_params += 1
+                        elif len(v.shape) < 4:
+                            # Reshape if necessary
+                            try:
+                                O, I, H, W = model_dict[key].shape
+                                v_reshaped = v.reshape(O, -1, H, W)
+                                if v_reshaped.shape == model_dict[key].shape:
+                                    pretrained_dict[key] = v_reshaped
+                                    loaded_params += 1
+                                    print(f'Reshaped and loaded: {key}')
+                                else:
+                                    print(f'Shape mismatch for {key}: expected {model_dict[key].shape}, got {v_reshaped.shape}')
+                            except:
+                                print(f'Failed to reshape {key}')
+                        else:
+                            print(f'Shape mismatch for {key}: expected {model_dict[key].shape}, got {v.shape}')
+                
+                # Handle position embedding size mismatch
+                elif key == 'pos_embed':
+                    if key in model_dict:
+                        if v.shape == model_dict[key].shape:
+                            pretrained_dict[key] = v
+                            loaded_params += 1
+                        else:
+                            # Resize position embedding
+                            try:
+                                resized_pos_embed = self._resize_pos_embed(v)
+                                if resized_pos_embed.shape == model_dict[key].shape:
+                                    pretrained_dict[key] = resized_pos_embed
+                                    loaded_params += 1
+                                    print(f'Resized and loaded position embedding: {key}')
+                                else:
+                                    print(f'Failed to resize position embedding: expected {model_dict[key].shape}, got {resized_pos_embed.shape}')
+                            except Exception as e:
+                                print(f'Error resizing position embedding: {e}')
+                
+                # Load other parameters with exact shape match
+                elif key in model_dict:
+                    if v.shape == model_dict[key].shape:
+                        pretrained_dict[key] = v
+                        loaded_params += 1
+                    else:
+                        print(f'Shape mismatch for {key}: expected {model_dict[key].shape}, got {v.shape}')
+                else:
+                    # Try to find similar keys (for different naming conventions)
+                    found_match = False
+                    for model_key in model_dict.keys():
+                        if model_key.endswith(key.split('.')[-1]) or key.endswith(model_key.split('.')[-1]):
+                            if v.shape == model_dict[model_key].shape:
+                                pretrained_dict[model_key] = v
+                                loaded_params += 1
+                                found_match = True
+                                print(f'Mapped {key} -> {model_key}')
+                                break
+                    
+                    if not found_match:
+                        print(f'Key {key} not found in model')
+            
+            # Load the matched parameters
+            if pretrained_dict:
+                model_dict.update(pretrained_dict)
+                self.load_state_dict(model_dict, strict=False)
+                print(f'Successfully loaded {loaded_params}/{total_params} parameters from {model_path}')
+                print(f'Loaded layers: {list(pretrained_dict.keys())[:10]}...' if len(pretrained_dict) > 10 
+                      else f'Loaded layers: {list(pretrained_dict.keys())}')
+            else:
+                print('No compatible parameters found in the pretrained model')
+                print('Available keys in pretrained model:', list(param_dict.keys())[:10])
+                print('Expected keys in current model:', list(model_dict.keys())[:10])
             
         except Exception as e:
             print(f'Failed to load pretrained model from {model_path}: {e}')
-            print('Initializing with random weights...')
+            print('Using random initialization instead...')
+            import traceback
+            traceback.print_exc()
 
     def _resize_pos_embed(self, posemb):
         """Resize position embedding to match current model"""
-        # This is a simplified version - in practice you might want more sophisticated resizing
-        return F.interpolate(
-            posemb.permute(0, 2, 1), 
-            size=self.pos_embed.shape[1], 
-            mode='linear'
-        ).permute(0, 2, 1)
+        try:
+            # Simple interpolation for position embedding
+            if len(posemb.shape) == 3:  # [1, N, D]
+                current_shape = self.pos_embed.shape
+                if posemb.shape[1] != current_shape[1]:
+                    # Interpolate along the sequence dimension
+                    posemb_resized = F.interpolate(
+                        posemb.permute(0, 2, 1), 
+                        size=current_shape[1], 
+                        mode='linear',
+                        align_corners=False
+                    ).permute(0, 2, 1)
+                    return posemb_resized
+            return posemb
+        except Exception as e:
+            print(f'Error in _resize_pos_embed: {e}')
+            return posemb
 
 
 def vision_mamba_small(**kwargs):

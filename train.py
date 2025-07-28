@@ -16,6 +16,7 @@ from tool.utils_server import save_network,copyfiles2checkpoints
 import warnings
 from losses.triplet_loss import Tripletloss,TripletLoss
 from losses.cal_loss import cal_kl_loss,cal_loss,cal_triplet_loss
+import os
 
 warnings.filterwarnings("ignore")
 version =  torch.__version__
@@ -33,7 +34,7 @@ def get_parse():
     parser = argparse.ArgumentParser(description='Training')
     parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
     parser.add_argument('--name',default='test', type=str, help='output model name')
-    parser.add_argument('--data_dir',default='/home/dmmm/University-Release/train',type=str, help='training dir path')
+    parser.add_argument('--data_dir',default='/home/ma-user/work/Mamba_CrossView/data/University-123/train',type=str, help='training dir path')
     parser.add_argument('--train_all', action='store_true', help='use all training data' )
     parser.add_argument('--color_jitter', action='store_true', help='use color jitter in training' )
     parser.add_argument('--num_worker', default=6,type=int, help='' )
@@ -251,6 +252,34 @@ def train_model(model,opt, optimizer, scheduler, dataloaders,dataset_sizes):
 
 if __name__ == '__main__':
     opt = get_parse()
+    
+    # 检查数据路径是否存在
+    if not os.path.exists(opt.data_dir):
+        print(f"错误：数据路径 {opt.data_dir} 不存在！")
+        print("请检查以下几点：")
+        print("1. 数据路径是否正确")
+        print("2. 数据是否已经下载和解压")
+        print("3. 目录结构是否符合要求")
+        print("\n预期的数据结构：")
+        print(f"{opt.data_dir}/")
+        print("├── satellite/")
+        print("│   ├── class1/")
+        print("│   ├── class2/")
+        print("│   └── ...")
+        print("├── street/")
+        print("│   ├── class1/")
+        print("│   ├── class2/")
+        print("│   └── ...")
+        print("└── drone/")
+        print("    ├── class1/")
+        print("    ├── class2/")
+        print("    └── ...")
+        exit(1)
+    
+    print(f"使用数据路径: {opt.data_dir}")
+    print(f"使用backbone: {opt.backbone}")
+    print(f"预训练模型路径: {opt.pretrain_path if opt.pretrain_path else '无(随机初始化)'}")
+    
     str_ids = opt.gpu_ids.split(',')
     gpu_ids = []
     for str_id in str_ids:

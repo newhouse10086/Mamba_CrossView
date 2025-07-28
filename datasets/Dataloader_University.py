@@ -14,20 +14,47 @@ class Dataloader_University(Dataset):
         self.transforms_satellite = transforms['satellite']
         self.root = root
         self.names =  names
+        
+        # 检查数据路径是否存在
+        if not os.path.exists(root):
+            raise FileNotFoundError(f"数据根目录 {root} 不存在！请检查数据路径配置。")
+        
         #获取所有图片的相对路径分别放到对应的类别中
         #{satelite:{0839:[0839.jpg],0840:[0840.jpg]}}
         dict_path = {}
+        available_names = []
+        
         for name in names:
-            dict_ = {}
-            for cls_name in os.listdir(os.path.join(root, name)):
-                img_list = os.listdir(os.path.join(root,name,cls_name))
-                img_path_list = [os.path.join(root,name,cls_name,img) for img in img_list]
-                dict_[cls_name] = img_path_list
-            dict_path[name] = dict_
-            # dict_path[name+"/"+cls_name] = img_path_list
+            name_path = os.path.join(root, name)
+            if os.path.exists(name_path):
+                available_names.append(name)
+                dict_ = {}
+                try:
+                    for cls_name in os.listdir(name_path):
+                        cls_path = os.path.join(name_path, cls_name)
+                        if os.path.isdir(cls_path):
+                            img_list = [f for f in os.listdir(cls_path) 
+                                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))]
+                            img_path_list = [os.path.join(cls_path, img) for img in img_list]
+                            if img_path_list:  # 只有当文件夹中有图片时才添加
+                                dict_[cls_name] = img_path_list
+                    dict_path[name] = dict_
+                except Exception as e:
+                    print(f"警告：处理 {name} 文件夹时出现错误：{e}")
+                    continue
+            else:
+                print(f"警告：{name_path} 路径不存在，跳过该类别")
+        
+        if not available_names:
+            raise FileNotFoundError(f"在 {root} 中没有找到任何有效的数据类别！")
+        
+        self.names = available_names
+        print(f"成功加载的数据类别：{available_names}")
 
         #获取设置名字与索引之间的镜像
-        cls_names = os.listdir(os.path.join(root,names[0]))
+        # 使用第一个可用的类别来获取类别名称
+        first_available = available_names[0]
+        cls_names = list(dict_path[first_available].keys())
         cls_names.sort()
         map_dict={i:cls_names[i] for i in range(len(cls_names))}
 
@@ -35,9 +62,25 @@ class Dataloader_University(Dataset):
         self.map_dict = map_dict
         self.dict_path = dict_path
         self.index_cls_nums = 2
+        
+        print(f"成功加载 {len(cls_names)} 个类别：{cls_names[:5]}..." if len(cls_names) > 5 else f"成功加载 {len(cls_names)} 个类别：{cls_names}")
 
     #从对应的类别中抽一张出来
     def sample_from_cls(self,name,cls_num):
+        if name not in self.dict_path:
+            # 如果指定的名称不存在，使用第一个可用的类别
+            name = self.names[0]
+            print(f"警告：指定的类别 {name} 不存在，使用 {self.names[0]} 替代")
+        
+        if cls_num not in self.dict_path[name]:
+            print(f"警告：类别 {cls_num} 在 {name} 中不存在")
+            # 使用该名称下的第一个可用类别
+            available_cls = list(self.dict_path[name].keys())
+            if available_cls:
+                cls_num = available_cls[0]
+            else:
+                raise ValueError(f"在 {name} 中没有找到任何类别！")
+        
         img_path = self.dict_path[name][cls_num]
         img_path = np.random.choice(img_path,1)[0]
         img = Image.open(img_path)
