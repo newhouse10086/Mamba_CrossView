@@ -57,7 +57,7 @@ def get_parse():
     parser.add_argument('--sample_num', default=1, type=float, help='num of repeat sampling' )
     parser.add_argument('--num_epochs', default=120, type=int, help='' )
     parser.add_argument('--steps', default=[70,110], type=int, help='' )
-    parser.add_argument('--backbone', default="VIT-S", type=str, help='' )
+    parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (improved), VAN-S' )
     parser.add_argument('--pretrain_path', default="", type=str, help='' )
     opt = parser.parse_args()
     return opt
@@ -278,6 +278,18 @@ if __name__ == '__main__':
     
     print(f"使用数据路径: {opt.data_dir}")
     print(f"使用backbone: {opt.backbone}")
+    
+    # 针对不同backbone给出建议
+    if opt.backbone == "MAMBA-S":
+        print("⚠️  注意：MAMBA-S是简化版实现，可能收敛困难")
+        print("建议：使用MAMBA-V2或降低学习率到0.0001")
+    elif opt.backbone == "MAMBA-V2":
+        print("✅ 使用MAMBA-V2（改进版），具有更好的收敛性")
+        if opt.lr > 0.001:
+            print("⚠️  建议：Vision Mamba使用更小的学习率，如0.0001")
+    elif opt.backbone == "VIT-S":
+        print("✅ 使用ViT-S（稳定可靠的选择）")
+    
     print(f"预训练模型路径: {opt.pretrain_path if opt.pretrain_path else '无(随机初始化)'}")
     
     str_ids = opt.gpu_ids.split(',')
