@@ -3,6 +3,7 @@ import torch.nn as nn
 from .backbones.vit_pytorch import vit_small_patch16_224_FSRA
 from .backbones.vision_mamba import vision_mamba_small_patch16_224_FSRA
 from .backbones.vision_mamba_v2 import vision_mamba_v2_small_patch16_224_FSRA
+from .backbones.vision_mamba_lite import vision_mamba_lite_small_patch16_224_FSRA
 import torch.nn.functional as F
 from .backbones.van import van_small
 
@@ -130,6 +131,20 @@ class build_transformer(nn.Module):
                 self.transformer.load_param(model_path)
             else:
                 print('No pretrained model provided for Vision Mamba v2, using random initialization')
+        elif opt.backbone == "MAMBA-LITE":
+            model_path = opt.pretrain_path
+            # Vision Mamba Lite (轻量级高速版本)
+            transformer_name = "vision_mamba_lite_small_patch16_224_FSRA"
+            self.in_planes = 512  # 注意：Lite版本的embedding维度更小
+
+            print('using Transformer_type: {} as a backbone'.format(transformer_name))
+
+            self.transformer = vision_mamba_lite_small_patch16_224_FSRA(img_size=(256,256), stride_size=[16, 16], 
+                                                                       drop_rate=0.0, local_feature=False)
+            if model_path and model_path != '':
+                self.transformer.load_param(model_path)
+            else:
+                print('No pretrained model provided for Vision Mamba Lite, using random initialization')
         elif opt.backbone=="VAN-S":
             self.transformer = van_small()
             checkpoint = torch.load(opt.pretrain_path)["state_dict"]

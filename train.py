@@ -57,7 +57,7 @@ def get_parse():
     parser.add_argument('--sample_num', default=1, type=float, help='num of repeat sampling' )
     parser.add_argument('--num_epochs', default=120, type=int, help='' )
     parser.add_argument('--steps', default=[70,110], type=int, help='' )
-    parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (improved), VAN-S' )
+    parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (full-featured), MAMBA-LITE (lightweight), VAN-S' )
     parser.add_argument('--pretrain_path', default="", type=str, help='' )
     opt = parser.parse_args()
     return opt
@@ -287,6 +287,11 @@ if __name__ == '__main__':
         print("✅ 使用MAMBA-V2（改进版），具有更好的收敛性")
         if opt.lr > 0.001:
             print("⚠️  建议：Vision Mamba使用更小的学习率，如0.0001")
+    elif opt.backbone == "MAMBA-LITE":
+        print("🚀 使用MAMBA-LITE（轻量级版本），训练速度更快")
+        print("💡 优势：更少参数，更快训练，适合快速实验")
+        if opt.lr < 0.001:
+            print("💡 提示：MAMBA-LITE可以使用稍大的学习率，如0.001")
     elif opt.backbone == "VIT-S":
         print("✅ 使用ViT-S（稳定可靠的选择）")
     
