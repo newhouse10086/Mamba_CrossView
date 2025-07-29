@@ -39,11 +39,10 @@ class PatchEmbed_overlap(nn.Module):
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride_size)
         
-        # Weight initialization
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+        # Xavier初始化
+        nn.init.xavier_normal_(self.proj.weight)
+        if self.proj.bias is not None:
+            nn.init.constant_(self.proj.bias, 0)
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -75,10 +74,16 @@ class LightweightMambaBlock(nn.Module):
             kernel_size=3, padding=1, groups=self.d_inner
         )
         
-        # 简化的状态参数
+        # 简化的状态参数 - 使用更合理的初始化
         self.dt_proj = nn.Linear(self.d_inner, self.d_inner, bias=True)
-        self.A = nn.Parameter(torch.randn(self.d_inner))
+        # A矩阵：状态衰减参数，初始化为小的负值
+        self.A = nn.Parameter(-torch.rand(self.d_inner) * 0.1)
+        # D矩阵：直接连接权重，初始化为1
         self.D = nn.Parameter(torch.ones(self.d_inner))
+        
+        # 对dt_proj使用Xavier初始化
+        nn.init.xavier_uniform_(self.dt_proj.weight)
+        nn.init.constant_(self.dt_proj.bias, 0)
 
     def forward(self, x):
         """
@@ -256,18 +261,37 @@ class VisionMambaLite(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.trunc_normal_(self.cls_token, std=0.02)
-        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        # 使用Xavier初始化cls_token和pos_embed
+        nn.init.xavier_uniform_(self.cls_token)
+        nn.init.xavier_uniform_(self.pos_embed)
         self.apply(self._init_weights_module)
 
     def _init_weights_module(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.trunc_normal_(m.weight, std=0.02)
+            # Linear层使用Xavier uniform初始化
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Conv2d):
+            # Conv2d层使用Xavier normal初始化
+            nn.init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Conv1d):
+            # Conv1d层使用Xavier normal初始化
+            nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
+            # LayerNorm保持标准初始化
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Parameter):
+            # 对于直接的Parameter，使用Xavier uniform
+            if len(m.shape) >= 2:
+                nn.init.xavier_uniform_(m)
+            else:
+                nn.init.uniform_(m, -0.1, 0.1)
 
     def forward_features(self, x):
         B = x.shape[0]
