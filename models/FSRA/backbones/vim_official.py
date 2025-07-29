@@ -410,19 +410,25 @@ class VisionMambaOfficial(nn.Module):
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         # 权重初始化
-        if if_abs_pos_embed:
-            trunc_normal_(self.pos_embed, std=.02)
-        if if_cls_token:
-            trunc_normal_(self.cls_token, std=.02)
-            
-        self.apply(
-            partial(
-                _init_weights,
-                n_layer=depth,
-                **(initializer_cfg if initializer_cfg is not None else {}),
-                n_residuals_per_layer=1 if if_bidirectional else 2,
+        self._initialize_weights(if_abs_pos_embed, if_cls_token, depth, initializer_cfg, if_bidirectional)
+
+    def _initialize_weights(self, if_abs_pos_embed, if_cls_token, depth, initializer_cfg, if_bidirectional):
+        """安全的权重初始化，避免in-place操作错误"""
+        with torch.no_grad():
+            if if_abs_pos_embed:
+                nn.init.trunc_normal_(self.pos_embed, std=0.02)
+            if if_cls_token:
+                nn.init.trunc_normal_(self.cls_token, std=0.02)
+                
+            # 应用其他层的初始化
+            self.apply(
+                partial(
+                    _init_weights,
+                    n_layer=depth,
+                    **(initializer_cfg if initializer_cfg is not None else {}),
+                    n_residuals_per_layer=1 if if_bidirectional else 2,
+                )
             )
-        )
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
         return {
@@ -528,23 +534,7 @@ class VisionMambaOfficial(nn.Module):
             print('Using random initialization instead...')
 
 
-def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
-    """Truncated normal initialization"""
-    def norm_cdf(x):
-        return (1. + math.erf(x / math.sqrt(2.))) / 2.
-
-    if (mean < a - 2 * std) or (mean > b + 2 * std):
-        warnings.warn("mean is more than 2 std from [a, b] in nn.init.trunc_normal_. "
-                      "The distribution of values may be incorrect.", stacklevel=2)
-
-    l = norm_cdf((a - mean) / std)
-    u = norm_cdf((b - mean) / std)
-    tensor.uniform_(2 * l - 1, 2 * u - 1)
-    tensor.erfinv_()
-    tensor.mul_(std * math.sqrt(2.))
-    tensor.add_(mean)
-    tensor.clamp_(min=a, max=b)
-    return tensor
+# 移除自定义的trunc_normal_函数，使用PyTorch内置的nn.init.trunc_normal_
 
 
 def _init_weights(
@@ -554,19 +544,19 @@ def _init_weights(
     rescale_prenorm_residual=True,
     n_residuals_per_layer=1,
 ):
-    if isinstance(module, nn.Linear):
-        if module.bias is not None:
-            if not getattr(module.bias, "_no_reinit", False):
-                nn.init.zeros_(module.bias)
-    elif isinstance(module, nn.Embedding):
-        nn.init.normal_(module.weight, std=initializer_range)
+    with torch.no_grad():
+        if isinstance(module, nn.Linear):
+            if module.bias is not None:
+                if not getattr(module.bias, "_no_reinit", False):
+                    nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, std=initializer_range)
 
-    if rescale_prenorm_residual:
-        for name, p in module.named_parameters():
-            if name in ["out_proj.weight", "fc2.weight"]:
-                nn.init.kaiming_uniform_(p, a=math.sqrt(5))
-                with torch.no_grad():
-                    p /= math.sqrt(n_residuals_per_layer * n_layer)
+        if rescale_prenorm_residual:
+            for name, p in module.named_parameters():
+                if name in ["out_proj.weight", "fc2.weight"]:
+                    nn.init.kaiming_uniform_(p, a=math.sqrt(5))
+                    p.div_(math.sqrt(n_residuals_per_layer * n_layer))
 
 
 # FSRA兼容接口
