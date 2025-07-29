@@ -104,7 +104,7 @@ def save_network_with_name(network, dirname, epoch_label, model_name="vision_mam
         'epoch': epoch_label,
         'model_state_dict': network.cpu().state_dict(),
         'model_name': model_name,
-        'architecture': getattr(network, '__class__', {}).get('__name__', 'Unknown')
+        'architecture': network.__class__.__name__ if hasattr(network, '__class__') else 'Unknown'
     }
     
     torch.save(model_state, save_path)
@@ -151,7 +151,7 @@ def save_best_model(network, dirname, epoch_label, metric_value, metric_name="ac
             'value': metric_value,
             'epoch': epoch_label
         },
-        'architecture': getattr(network, '__class__', {}).get('__name__', 'Unknown')
+        'architecture': network.__class__.__name__ if hasattr(network, '__class__') else 'Unknown'
     }
     
     torch.save(model_state, save_path)
