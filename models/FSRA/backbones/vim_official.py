@@ -87,7 +87,7 @@ class VimBlock(nn.Module):
                 self.norm, (nn.LayerNorm, RMSNorm)
             ), "Only LayerNorm and RMSNorm are supported for fused_add_norm"
 
-    def forward(self, hidden_states: torch.Tensor, residual: Optional[torch.Tensor] = None):
+    def forward(self, hidden_states: torch.Tensor, residual: Optional[torch.Tensor] = None, inference_params=None):
         if not self.fused_add_norm:
             if residual is None:
                 residual = hidden_states
@@ -98,27 +98,16 @@ class VimBlock(nn.Module):
             if self.residual_in_fp32:
                 residual = residual.to(torch.float32)
         else:
-            fused_add_norm_fn = rms_norm_fn if isinstance(self.norm, RMSNorm) else layer_norm_fn
+            # fused_add_norm_fn暂不支持，使用标准实现
             if residual is None:
-                hidden_states, residual = fused_add_norm_fn(
-                    hidden_states,
-                    self.norm.weight,
-                    self.norm.bias,
-                    residual=residual,
-                    prenorm=True,
-                    residual_in_fp32=self.residual_in_fp32,
-                    eps=self.norm.eps,
-                )
+                residual = hidden_states
             else:
-                hidden_states, residual = fused_add_norm_fn(
-                    self.drop_path(hidden_states),
-                    self.norm.weight,
-                    self.norm.bias,
-                    residual=residual,
-                    prenorm=True,
-                    residual_in_fp32=self.residual_in_fp32,
-                    eps=self.norm.eps,
-                )    
+                residual = residual + self.drop_path(hidden_states)
+            
+            hidden_states = self.norm(residual.to(dtype=self.norm.weight.dtype))
+            if self.residual_in_fp32:
+                residual = residual.to(torch.float32)
+                
         hidden_states = self.mixer(hidden_states)
         return hidden_states, residual
 
@@ -208,7 +197,7 @@ class BidirectionalMamba(nn.Module):
             self.dt_proj_forward = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
             self.dt_proj_backward = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
             
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, inference_params=None):
         batch, seqlen, dim = hidden_states.shape
         
         if MAMBA_AVAILABLE:
