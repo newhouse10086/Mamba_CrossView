@@ -39,8 +39,8 @@ class PatchEmbed_overlap(nn.Module):
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride_size)
         
-        # Xavier初始化
-        nn.init.xavier_normal_(self.proj.weight)
+        # HE初始化 (适合ReLU族激活函数)
+        nn.init.kaiming_normal_(self.proj.weight, mode='fan_out', nonlinearity='relu')
         if self.proj.bias is not None:
             nn.init.constant_(self.proj.bias, 0)
 
@@ -81,8 +81,8 @@ class LightweightMambaBlock(nn.Module):
         # D矩阵：直接连接权重，初始化为1
         self.D = nn.Parameter(torch.ones(self.d_inner))
         
-        # 对dt_proj使用Xavier初始化
-        nn.init.xavier_uniform_(self.dt_proj.weight)
+        # 对dt_proj使用HE初始化 (适合SiLU激活)
+        nn.init.kaiming_uniform_(self.dt_proj.weight, mode='fan_in', nonlinearity='relu')
         nn.init.constant_(self.dt_proj.bias, 0)
 
     def forward(self, x):
@@ -261,25 +261,25 @@ class VisionMambaLite(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        # 使用Xavier初始化cls_token和pos_embed
-        nn.init.xavier_uniform_(self.cls_token)
-        nn.init.xavier_uniform_(self.pos_embed)
+        # 使用HE初始化cls_token和pos_embed
+        nn.init.kaiming_normal_(self.cls_token, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.pos_embed, mode='fan_out', nonlinearity='relu')
         self.apply(self._init_weights_module)
 
     def _init_weights_module(self, m):
         if isinstance(m, nn.Linear):
-            # Linear层使用Xavier uniform初始化
-            nn.init.xavier_uniform_(m.weight)
+            # Linear层使用HE uniform初始化 (适合SiLU激活)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Conv2d):
-            # Conv2d层使用Xavier normal初始化
-            nn.init.xavier_normal_(m.weight)
+            # Conv2d层使用HE normal初始化
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Conv1d):
-            # Conv1d层使用Xavier normal初始化
-            nn.init.xavier_normal_(m.weight)
+            # Conv1d层使用HE normal初始化
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -287,10 +287,11 @@ class VisionMambaLite(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
         elif isinstance(m, nn.Parameter):
-            # 对于直接的Parameter，使用Xavier uniform
+            # 对于直接的Parameter，使用HE normal
             if len(m.shape) >= 2:
-                nn.init.xavier_uniform_(m)
+                nn.init.kaiming_normal_(m, mode='fan_out', nonlinearity='relu')
             else:
+                # 1D参数使用小范围uniform初始化
                 nn.init.uniform_(m, -0.1, 0.1)
 
     def forward_features(self, x):
