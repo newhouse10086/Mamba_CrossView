@@ -12,7 +12,7 @@ import time
 from optimizers.make_optimizer_mamba import make_optimizer, print_recommended_config
 from models.model import make_model
 from datasets.make_dataloader import make_dataset
-from tool.utils_server import save_network,copyfiles2checkpoints
+from tool.utils_server import save_network, save_network_with_name, save_best_model, copyfiles2checkpoints
 import warnings
 from losses.triplet_loss import Tripletloss,TripletLoss
 from losses.cal_loss import cal_kl_loss,cal_loss,cal_triplet_loss
@@ -61,6 +61,12 @@ def get_parse():
     parser.add_argument('--pretrain_path', default="", type=str, help='' )
     parser.add_argument('--optimizer', default="auto", type=str, 
                        help='优化器选择: auto(自动), adamw, sgd, sgd_original, lion')
+    parser.add_argument('--save_best_only', action='store_true', default=True,
+                       help='只保存最佳性能模型 (默认: True)')
+    parser.add_argument('--save_checkpoint_freq', default=10, type=int,
+                       help='checkpoint保存频率 (每N个epoch保存一次checkpoint，默认: 10)')
+    parser.add_argument('--custom_model_name', default="", type=str,
+                       help='自定义模型名称前缀 (为空时根据backbone自动选择)')
     opt = parser.parse_args()
     return opt
 
@@ -77,6 +83,30 @@ def train_model(model,opt, optimizer, scheduler, dataloaders,dataset_sizes):
     criterion = nn.CrossEntropyLoss()
     loss_kl = nn.KLDivLoss(reduction='batchmean')
     triplet_loss = Tripletloss(margin=opt.triplet_loss)
+    
+    # 初始化最佳性能跟踪
+    best_acc = 0.0
+    best_epoch = -1
+    best_loss = float('inf')
+    
+    # 根据backbone选择模型名称
+    if opt.custom_model_name:
+        model_name = opt.custom_model_name
+    elif 'MAMBA-LITE' in opt.backbone:
+        model_name = "vision_mamba_lite_small_patch16_224_FSRA"
+    elif 'MAMBA-V2' in opt.backbone:
+        model_name = "vision_mamba_v2_small_patch16_224_FSRA"
+    elif 'MAMBA-S' in opt.backbone:
+        model_name = "vision_mamba_small_patch16_224_FSRA"
+    elif 'VIT-S' in opt.backbone:
+        model_name = "vit_small_patch16_224_FSRA"
+    elif 'VAN-S' in opt.backbone:
+        model_name = "van_small_FSRA"
+    else:
+        model_name = f"{opt.backbone.lower()}_FSRA"
+    
+    print(f"\n🎯 最佳模型追踪已启动，模型名称: {model_name}")
+    print(f"📁 最佳模型将保存为: {model_name}_best.pth")
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -243,13 +273,63 @@ def train_model(model,opt, optimizer, scheduler, dataloaders,dataset_sizes):
             # deep copy the model
             if phase == 'train':
                 scheduler.step()
-            if epoch % 10 == 9 and epoch>=110:
-                save_network(model, opt.name, epoch)
-
-        time_elapsed = time.time() - since
-        print('Training complete in {:.0f}m {:.0f}s'.format(
-            time_elapsed // 60, time_elapsed % 60))
-        print()
+                
+                # 检查是否是最佳性能
+                current_acc = epoch_acc  # 使用当前准确率作为性能指标
+                current_loss = epoch_loss
+                
+                is_best_acc = current_acc > best_acc
+                is_best_loss = current_loss < best_loss
+                
+                # 更新最佳记录
+                if is_best_acc:
+                    old_best_acc = best_acc  # 保存旧的最佳值用于显示
+                    best_acc = current_acc
+                    best_epoch = epoch
+                    if old_best_acc == 0.0:
+                        print(f"🏆 首次设定最佳准确率: {current_acc:.4f}")
+                    else:
+                        print(f"🏆 发现更好的准确率! {current_acc:.4f} > {old_best_acc:.4f} (之前最佳)")
+                    
+                    # 保存最佳准确率模型
+                    save_best_model(model, opt.name, epoch, current_acc, "accuracy", model_name)
+                    print(f"💾 最佳准确率模型已更新并保存")
+                
+                if is_best_loss:
+                    old_best_loss = best_loss
+                    best_loss = current_loss  
+                    if old_best_loss == float('inf'):
+                        print(f"📈 首次设定最佳Loss: {current_loss:.4f}")
+                    else:
+                        print(f"📈 发现更低的Loss! {current_loss:.4f} < {old_best_loss:.4f} (之前最佳)")
+                    
+                    # 可选：也可以保存最佳loss模型
+                    # save_best_model(model, opt.name, epoch, current_loss, "loss", model_name)
+                
+                # 每N轮显示当前最佳状态
+                if epoch % opt.save_checkpoint_freq == (opt.save_checkpoint_freq - 1):
+                    print(f"📊 目前最佳状态:")
+                    print(f"   最佳准确率: {best_acc:.4f} (第{best_epoch+1}轮)")
+                    print(f"   当前准确率: {current_acc:.4f}")
+                    print(f"   最佳Loss: {best_loss:.4f}")
+                    print(f"   当前Loss: {current_loss:.4f}")
+                    
+                    # 每N轮保存一个checkpoint（可选）
+                    save_network(model, opt.name, epoch)
+                    print(f"📁 第{epoch+1}轮训练checkpoint已保存")
+                
+                # 显示当前状态
+                if is_best_acc:
+                    print(f"✨ 第{epoch+1}轮: 准确率 {current_acc:.4f} ⬆️ (新最佳!)")
+                else:
+                    print(f"📊 第{epoch+1}轮: 准确率 {current_acc:.4f} (最佳: {best_acc:.4f})")
+                    
+    # 训练结束后的总结
+    time_elapsed = time.time() - since
+    print(f"\n🎉 训练完成! 耗时: {time_elapsed // 60:.0f}分 {time_elapsed % 60:.0f}秒")
+    print(f"   🏆 最佳准确率: {best_acc:.4f} (第{best_epoch+1}轮达到)")
+    print(f"   📁 最佳模型已保存为: {model_name}_best_accuracy_{best_acc:.4f}.pth")
+    print(f"   📁 最新模型副本: {model_name}_latest.pth")
 
 
 if __name__ == '__main__':
@@ -298,6 +378,31 @@ if __name__ == '__main__':
         print("✅ 使用ViT-S（稳定可靠的选择）")
     
     print(f"预训练模型路径: {opt.pretrain_path if opt.pretrain_path else '无(随机初始化)'}")
+    
+    # 模型保存配置信息
+    print(f"\n💾 模型保存配置:")
+    if opt.custom_model_name:
+        model_name = opt.custom_model_name
+    elif 'MAMBA-LITE' in opt.backbone:
+        model_name = "vision_mamba_lite_small_patch16_224_FSRA"
+    elif 'MAMBA-V2' in opt.backbone:
+        model_name = "vision_mamba_v2_small_patch16_224_FSRA"
+    elif 'MAMBA-S' in opt.backbone:
+        model_name = "vision_mamba_small_patch16_224_FSRA"
+    elif 'VIT-S' in opt.backbone:
+        model_name = "vit_small_patch16_224_FSRA"
+    elif 'VAN-S' in opt.backbone:
+        model_name = "van_small_FSRA"
+    else:
+        model_name = f"{opt.backbone.lower()}_FSRA"
+    
+    print(f"   模型名称: {model_name}")
+    print(f"   保存目录: ./checkpoints/{opt.name}/")
+    print(f"   保存策略: {'仅保存最佳性能模型' if opt.save_best_only else '每轮保存'}")
+    print(f"   最佳模型: {model_name}_best_accuracy_X.XXX.pth")
+    print(f"   最新副本: {model_name}_latest.pth")
+    print(f"   Checkpoint频率: 每{opt.save_checkpoint_freq}轮保存一次checkpoint")
+    print(f"   性能指标: 准确率 (accuracy)")
     
     str_ids = opt.gpu_ids.split(',')
     gpu_ids = []
