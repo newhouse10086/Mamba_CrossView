@@ -167,6 +167,20 @@ def make_optimizer(model, opt, optimizer_type='auto'):
 
 # 推荐的训练配置
 RECOMMENDED_CONFIGS = {
+    'VIM-TINY': {
+        'optimizer': 'adamw',
+        'lr': 0.0005,
+        'batch_size': 16,
+        'num_epochs': 120,
+        'description': '官方Vision Mamba Tiny，双向状态空间，78.3% ImageNet准确率'
+    },
+    'VIM-SMALL': {
+        'optimizer': 'adamw',
+        'lr': 0.0003,
+        'batch_size': 12,
+        'num_epochs': 120,
+        'description': '官方Vision Mamba Small，更大容量，更好性能'
+    },
     'MAMBA-LITE': {
         'optimizer': 'adamw',
         'lr': 0.001,

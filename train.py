@@ -57,7 +57,7 @@ def get_parse():
     parser.add_argument('--sample_num', default=1, type=float, help='num of repeat sampling' )
     parser.add_argument('--num_epochs', default=120, type=int, help='' )
     parser.add_argument('--steps', default=[70,110], type=int, help='' )
-    parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (full-featured), MAMBA-LITE (lightweight), VAN-S' )
+    parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (full-featured), MAMBA-LITE (lightweight), VIM-TINY (official), VIM-SMALL (official), VAN-S' )
     parser.add_argument('--pretrain_path', default="", type=str, help='' )
     parser.add_argument('--optimizer', default="auto", type=str, 
                        help='优化器选择: auto(自动), adamw, sgd, sgd_original, lion')
@@ -92,6 +92,10 @@ def train_model(model,opt, optimizer, scheduler, dataloaders,dataset_sizes):
     # 根据backbone选择模型名称
     if opt.custom_model_name:
         model_name = opt.custom_model_name
+    elif 'VIM-TINY' in opt.backbone:
+        model_name = "vim_tiny_patch16_224_FSRA"
+    elif 'VIM-SMALL' in opt.backbone:
+        model_name = "vim_small_patch16_224_FSRA"
     elif 'MAMBA-LITE' in opt.backbone:
         model_name = "vision_mamba_lite_small_patch16_224_FSRA"
     elif 'MAMBA-V2' in opt.backbone:
@@ -362,9 +366,20 @@ if __name__ == '__main__':
     print(f"使用backbone: {opt.backbone}")
     
     # 针对不同backbone给出建议
-    if opt.backbone == "MAMBA-S":
+    if opt.backbone == "VIM-TINY":
+        print("🎯 使用官方Vision Mamba Tiny（推荐）")
+        print("✅ 优势：官方实现，双向状态空间建模，支持预训练权重")
+        print("📊 预期性能：78.3% ImageNet Top-1准确率")
+        if opt.lr > 0.0005:
+            print("💡 建议：Vision Mamba使用较小的学习率，如0.0003-0.0005")
+    elif opt.backbone == "VIM-SMALL":
+        print("🎯 使用官方Vision Mamba Small（推荐）")
+        print("✅ 优势：官方实现，更大模型容量，双向状态空间建模")
+        if opt.lr > 0.0005:
+            print("💡 建议：Vision Mamba使用较小的学习率，如0.0003-0.0005")
+    elif opt.backbone == "MAMBA-S":
         print("⚠️  注意：MAMBA-S是简化版实现，可能收敛困难")
-        print("建议：使用MAMBA-V2或降低学习率到0.0001")
+        print("建议：使用VIM-TINY或降低学习率到0.0001")
     elif opt.backbone == "MAMBA-V2":
         print("✅ 使用MAMBA-V2（改进版），具有更好的收敛性")
         if opt.lr > 0.001:
@@ -383,6 +398,10 @@ if __name__ == '__main__':
     print(f"\n💾 模型保存配置:")
     if opt.custom_model_name:
         model_name = opt.custom_model_name
+    elif 'VIM-TINY' in opt.backbone:
+        model_name = "vim_tiny_patch16_224_FSRA"
+    elif 'VIM-SMALL' in opt.backbone:
+        model_name = "vim_small_patch16_224_FSRA"
     elif 'MAMBA-LITE' in opt.backbone:
         model_name = "vision_mamba_lite_small_patch16_224_FSRA"
     elif 'MAMBA-V2' in opt.backbone:

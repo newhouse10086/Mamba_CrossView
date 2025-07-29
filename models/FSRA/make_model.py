@@ -4,6 +4,7 @@ from .backbones.vit_pytorch import vit_small_patch16_224_FSRA
 from .backbones.vision_mamba import vision_mamba_small_patch16_224_FSRA
 from .backbones.vision_mamba_v2 import vision_mamba_v2_small_patch16_224_FSRA
 from .backbones.vision_mamba_lite import vision_mamba_lite_small_patch16_224_FSRA
+from .backbones.vim_official import vim_tiny_patch16_224_FSRA, vim_small_patch16_224_FSRA
 import torch.nn.functional as F
 from .backbones.van import van_small
 
@@ -145,6 +146,34 @@ class build_transformer(nn.Module):
                 self.transformer.load_param(model_path)
             else:
                 print('No pretrained model provided for Vision Mamba Lite, using random initialization')
+        elif opt.backbone == "VIM-TINY":
+            model_path = opt.pretrain_path
+            # Official Vision Mamba Tiny (vim_t_midclstok_ft_78p3acc.pth)
+            transformer_name = "vim_tiny_patch16_224_FSRA"
+            self.in_planes = 192  # Vim-tiny embedding dimension
+
+            print('using Transformer_type: {} as a backbone'.format(transformer_name))
+
+            self.transformer = vim_tiny_patch16_224_FSRA(img_size=(256,256), stride_size=[16, 16], 
+                                                        drop_rate=0.0, local_feature=False)
+            if model_path and model_path != '':
+                self.transformer.load_param(model_path)
+            else:
+                print('No pretrained model provided for Vision Mamba Tiny, using random initialization')
+        elif opt.backbone == "VIM-SMALL":
+            model_path = opt.pretrain_path
+            # Official Vision Mamba Small
+            transformer_name = "vim_small_patch16_224_FSRA"
+            self.in_planes = 384  # Vim-small embedding dimension
+
+            print('using Transformer_type: {} as a backbone'.format(transformer_name))
+
+            self.transformer = vim_small_patch16_224_FSRA(img_size=(256,256), stride_size=[16, 16], 
+                                                         drop_rate=0.0, local_feature=False)
+            if model_path and model_path != '':
+                self.transformer.load_param(model_path)
+            else:
+                print('No pretrained model provided for Vision Mamba Small, using random initialization')
         elif opt.backbone=="VAN-S":
             self.transformer = van_small()
             checkpoint = torch.load(opt.pretrain_path)["state_dict"]
