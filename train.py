@@ -9,7 +9,7 @@ from torch.autograd import Variable
 from torch.cuda.amp import autocast,GradScaler
 import torch.backends.cudnn as cudnn
 import time
-from optimizers.make_optimizer import make_optimizer
+from optimizers.make_optimizer_mamba import make_optimizer, print_recommended_config
 from models.model import make_model
 from datasets.make_dataloader import make_dataset
 from tool.utils_server import save_network,copyfiles2checkpoints
@@ -59,6 +59,8 @@ def get_parse():
     parser.add_argument('--steps', default=[70,110], type=int, help='' )
     parser.add_argument('--backbone', default="VIT-S", type=str, help='VIT-S, MAMBA-S (simplified), MAMBA-V2 (full-featured), MAMBA-LITE (lightweight), VAN-S' )
     parser.add_argument('--pretrain_path', default="", type=str, help='' )
+    parser.add_argument('--optimizer', default="auto", type=str, 
+                       help='优化器选择: auto(自动), adamw, sgd, sgd_original, lion')
     opt = parser.parse_args()
     return opt
 
@@ -315,8 +317,13 @@ if __name__ == '__main__':
     opt.nclasses = len(class_names)
 
     model = make_model(opt)
-
-    optimizer_ft, exp_lr_scheduler = make_optimizer(model,opt)
+    
+    # 打印推荐的优化器配置
+    print_recommended_config(opt.backbone)
+    
+    # 创建优化器
+    print(f"\n🔧 创建优化器 (类型: {opt.optimizer})")
+    optimizer_ft, exp_lr_scheduler = make_optimizer(model, opt, optimizer_type=opt.optimizer)
 
     model = model.cuda()
     #移动文件到指定文件夹
